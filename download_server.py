@@ -2,9 +2,7 @@
 """Serve one chosen ZIP file for a short time; no external dependencies."""
 
 import argparse
-import hmac
 import os
-import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -37,20 +35,12 @@ def main():
     except OSError as exc:
         parser.error(f"cannot read file: {exc}")
 
-    token = secrets.token_urlsafe(24)
     host = "0.0.0.0" if args.public else "127.0.0.1"
 
     class DownloadHandler(BaseHTTPRequestHandler):
         def log_message(self, *_args):
-            # The URL contains a secret token; do not log requested paths.
+            # Suppress request logs.
             return
-
-        def _authorized(self):
-            request_path = urlsplit(self.path).path
-            prefix = "/download/"
-            return request_path.startswith(prefix) and hmac.compare_digest(
-                request_path[len(prefix):], token
-            )
 
         def _send_headers(self, length):
             self.send_response(200)
@@ -65,7 +55,7 @@ def main():
             self.end_headers()
 
         def _handle(self, send_body):
-            if not self._authorized():
+            if urlsplit(self.path).path != "/download":
                 self.send_error(404)
                 return
             try:
@@ -96,12 +86,12 @@ def main():
     except OSError as exc:
         parser.error(f"failed to listen on {host}:{args.port}: {exc}")
 
-    route = f"/download/{token}"
+    route = "/download"
     print(f"提供文件：{path}", flush=True)
     print(f"有效时间：{args.ttl} 秒；下载成功后自动结束（Ctrl+C 可提前退出）", flush=True)
     if args.public:
         print(f"下载地址：http://<服务器公网IP>:{args.port}{route}", flush=True)
-        print("警告：公网 HTTP 不加密，令牌和内容可能被窃听。建议优先使用 SSH 隧道。", flush=True)
+        print("警告：任何能访问这个地址的人都可以下载文件；公网 HTTP 不加密。建议优先使用 SSH 隧道。", flush=True)
     else:
         print(f"下载地址（SSH 隧道连接后，在本机浏览器打开）：http://127.0.0.1:{args.port}{route}", flush=True)
         print(f"本机建立隧道：ssh -N -L {args.port}:127.0.0.1:{args.port} 用户名@服务器IP", flush=True)
